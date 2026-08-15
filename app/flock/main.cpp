@@ -1,6 +1,5 @@
 
 #include <raylib.h>
-// #include <raymath.h>
 
 #include <mather/mather.hpp>
 #include <mather/vector2d.hpp>
@@ -28,31 +27,15 @@ constexpr double initWinH = 800;
 
 constexpr float maxSpeedK = 2.0;
 constexpr float maxForceK = 0.03;
-constexpr float neighborDist = 90.0;
-constexpr float SeparateDist = 30.0;  // has to be smaller than neighborDist
-constexpr float separateK = 1.8;
+constexpr float neighborDist = 65.0;
+constexpr float SeparateDist = 24.0;  // has to be smaller than neighborDist
+constexpr float separateK = 1.5;
 constexpr float alignK = 1.0;
-constexpr float cohereK = 1.0;
+constexpr float cohereK = 0.8;
 
-constexpr int numberOfBirds = 70;
+constexpr int numberOfBirds = 250;
 constexpr int fps = 60;
 
-auto getGlyph(const int id) -> std::string {
-    static std::map<int, std::string> kMayaGlyphs = {
-        {0, "\U0001D2E0"},  // Mayan numeral zero (shell)
-        {1, "\U0001D2E1"},  {2, "\U0001D2E2"},  {3, "\U0001D2E3"},  {4, "\U0001D2E4"},
-        {5, "\U0001D2E5"},  {6, "\U0001D2E6"},  {7, "\U0001D2E7"},  {8, "\U0001D2E8"},
-        {9, "\U0001D2E9"},  {10, "\U0001D2EA"}, {11, "\U0001D2EB"}, {12, "\U0001D2EC"},
-        {13, "\U0001D2ED"}, {14, "\U0001D2EE"}, {15, "\U0001D2EF"}, {16, "\U0001D2F0"},
-        {17, "\U0001D2F1"}, {18, "\U0001D2F2"}, {19, "\U0001D2F3"}};
-
-    auto it = kMayaGlyphs.find(id % 20);
-    if (it != kMayaGlyphs.end()) {
-        return it->second;
-    }
-
-    return {"\U0001D2E0"};
-}
 
 struct AppWindow {
     AppWindow(int winWidth = 1280, int winHeight = 720) {
@@ -109,17 +92,6 @@ struct AppFonts {
     Font fonts;
 };
 
-auto executableDirectory() -> std::filesystem::path {
-    std::vector<char> buffer(4096);
-
-    ssize_t len = readlink("/proc/self/exe", buffer.data(), buffer.size());
-    if (len <= -1) {
-        throw std::runtime_error("ERR: readlink failed");
-    }
-
-    return fs::path(std::string(buffer.data(), (size_t)len)).parent_path();
-}
-
 struct Bird {
     Bird(float x_, float y_, float velX_, float velY_)  //
         : pos(x_, y_), vel(velX_, velY_) {
@@ -141,23 +113,11 @@ auto vv2rr(const Vector2& v) -> mathER::Vector2d {
     return {(float)v.x, (float)v.y};
 }
 
-template <typename T>
-auto limit(T& v, float mx) {
-    if (v.x > mx) {
-        v.x = mx;
-    }
+auto limit(mathER::Vector2d& v, const float maximum) -> void {
+    const double magnitude = mathER::pythag(v.x, v.y);
 
-    if (v.y > mx) {
-        v.y = mx;
-    }
-}
-
-auto limit2(mathER::Vector2d& vel, float mx) {
-
-    double mag = mathER::pythag(vel.x, vel.y);
-
-    if (mx > 0 && mag > mx) {
-        vel = vel * (1.0 / mag);
+    if (maximum > 0.0f && magnitude > maximum) {
+        v = v * (maximum / magnitude);
     }
 }
 
@@ -175,7 +135,7 @@ auto target(Bird& bird, mathER::Vector2d& targetDirection, const float k) {
     }
 
     auto y = x.value();
-    y = y - bird.vel ;
+    y -= bird.vel;
 
     y = y * maxSpeedK;
 
@@ -183,7 +143,7 @@ auto target(Bird& bird, mathER::Vector2d& targetDirection, const float k) {
 
     y = y * k;
 
-    bird.acc = bird.acc + y;
+    bird.acc += y;
 }
 
 auto steer(Bird& bird, const std::vector<Bird>& flock) -> void {
@@ -203,8 +163,8 @@ auto steer(Bird& bird, const std::vector<Bird>& flock) -> void {
         }
 
         if (d < neighborDist) {
-            sumAlign = sumAlign + other.vel;
-            sumCohere = sumCohere + other.pos;
+            sumAlign += other.vel;
+            sumCohere += other.pos;
             countN++;
         }
 
@@ -216,7 +176,7 @@ auto steer(Bird& bird, const std::vector<Bird>& flock) -> void {
                 throw;
             }
 
-            sumSeparate = sumSeparate + (norm.value() * (1.0 / d));
+            sumSeparate += (norm.value() * (1.0 / d));
             countS++;
         }
     }
@@ -228,38 +188,84 @@ auto steer(Bird& bird, const std::vector<Bird>& flock) -> void {
     if (countN > 0) {
         target(bird, sumAlign, alignK);
         sumCohere = sumCohere * (1.0 / countN);
-        sumCohere = sumCohere - bird.pos;
+        sumCohere -= bird.pos;
         target(bird, sumCohere, cohereK);
     }
 }
 
-void enemy(Bird &bird) {
-
-    mathER::Vector2d mouse=vv2rr(GetMousePosition());
-
+void enemy(Bird& bird) {
+    mathER::Vector2d mouse = vv2rr(GetMousePosition());
     mathER::Vector2d diff = mouse - bird.pos;
 
-    target(bird, diff, 1.0);
+    double d = birdDist(mouse, bird.pos);
+
+    if (d > 100) {
+        target(bird, diff, 1.0);
+    }
+
+    if (d < 100) {
+        target(bird, diff, -1.0);
+    }
 }
 
-auto guide(Bird& bird, const std::vector<Bird>& flock) {
+struct Config {
+    int w{0};
+    int h{0};
+};
+
+void wall(const Config &config, Bird& bird, const int wallNumber) {
+
+    mathER::Vector2d wall(0.0, bird.pos.y);
+
+    switch (wallNumber) {
+        case 0:
+            wall.x = 0.0;
+            wall.y = bird.pos.y;
+            break;
+        case 1:
+            wall.x = config.w;
+            wall.y = bird.pos.y;
+            break;
+        case 2:
+            wall.x = bird.pos.x;
+            wall.y = 0.0;
+            break;
+        case 3:
+            wall.x =bird.pos.x;
+            wall.y = config.h;
+            break;
+    }
+
+    mathER::Vector2d diff = wall - bird.pos;
+
+    double d = birdDist(wall, bird.pos);
+
+    if (d < 80) {
+        target(bird, diff, -2.0);
+    }
+}
+
+auto guide(const Config& config, Bird& bird, const std::vector<Bird>& flock) {
 
     bird.acc.x = 0.0;
     bird.acc.y = 0.0;
 
     steer(bird, flock);
-    enemy(bird);
+    // enemy(bird);
+    for (int i = 0; i < 4; i++) {
+        wall(config, bird, i);
+    }
 }
 
-auto update(const float w, const float h, Bird& bird) {
-    bird.vel = bird.vel + bird.acc;
+auto update(const Config &config, Bird& bird) {
+    bird.vel += bird.acc;
 
     limit(bird.vel, maxSpeedK);
 
-    bird.pos = bird.pos + bird.vel;
+    bird.pos += bird.vel;
 
-    bird.pos.x = std::fmod(bird.pos.x + w, w);
-    bird.pos.y = std::fmod(bird.pos.y + h, h);
+    bird.pos.x = std::fmod(bird.pos.x + config.w, config.w);
+    bird.pos.y = std::fmod(bird.pos.y + config.h, config.h);
 }
 
 void DrawTallTriangle(
@@ -300,13 +306,11 @@ auto drawBird(Bird& bird) {
         DrawRing(rr2vv(bird.pos), r1, r1 + 1.0f, 0.0f, 360.0f, 100, ORANGE);
     }
 
-    DrawTallTriangle(bird.pos.x, bird.pos.y, 7, 14, v, bird.color);
+    DrawTallTriangle(bird.pos.x, bird.pos.y, 4, 10, v, bird.color);
 }
 
 int main(void) {
     AppWindow appWindow(initWinW, initWinH);
-
-    // AppFonts font16;
 
     std::vector<Bird> flock;
 
@@ -321,74 +325,35 @@ int main(void) {
         float rw = (float)distribX(gen);
         float rh = (float)distribY(gen);
 
-        float rx = (float)distribI(gen)/10000.0;
-        float ry = (float)distribI(gen)/10000.0;
+        float rx = (float)distribI(gen) / 10000.0;
+        float ry = (float)distribI(gen) / 10000.0;
 
         flock.push_back(Bird(rw, rh, rx, ry));
     }
 
+    if (flock.size() > 2)
     {
-        flock[0].color = RED;
-        flock[0].range = true;
+        flock.front().color = RED;
+        flock.front().range = true;
+
+        flock.back().color = BLUE;
     }
 
-    std::println("============================");
-    int noAngle = 0;
-    int p1 = 0;
-    int p2 = 0;
-    int p3 = 0;
-    int p4 = 0;
-    for (auto& x : flock) {
-        auto v = mathER::angle(x.vel);
-        if (!v.has_value()) {
-            noAngle++;
-            continue;
-        }
-
-       const  double d = mathER::rad2deg(v.value());
-
-        if (d > 0.0 && d <= 90.0) { p1++; }
-        if (d > 90.0 && d <= 180.0) { p2++; }
-        if (d > 180.0 && d <= 270.0) { p3++; }
-        if (d > 270.0 && d <= 360.0) { p4++; }
-    }
-    std::println("No angle {}", noAngle);
-    std::println("{} {} {} {}", p1, p2, p3, p4);
-    std::println("============================");
-
-
-#if 0
-    auto exeDir = executableDirectory();
-    int rc = font16.initFonts(exeDir);
-    if (rc != 0) {
-        std::println("ERR: ===> Font file could not be found! <===");
-        return -1;
-    }
-#endif
-
-    int w = 0;
-    int h = 0;
+    Config config;
 
     while (appWindow.isOpen()) {
 
-        w = GetScreenWidth();
-        h = GetScreenHeight();
+        config.w = static_cast<float>(GetScreenWidth());
+        config.h = static_cast<float>(GetScreenHeight());
 
-        /*
-        Vector2 mouse = GetMousePosition();
+        for (auto& b : flock) { guide(config, b, flock); }
+        for (auto& b : flock) { update(config, b); }
 
-        flock[0].pos.x = mouse.x;
-        flock[0].pos.y = mouse.y;
-        */
 
         BeginDrawing();
         ClearBackground(BLACK);
 
-        for (auto& b : flock) {
-            guide(b, flock);
-            update(w, h, b);
-            drawBird(b);
-        }
+        for (auto& b : flock) { drawBird(b); }
 
         EndDrawing();
     }
