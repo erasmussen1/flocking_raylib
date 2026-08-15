@@ -240,9 +240,19 @@ void wall(const Config &config, Bird& bird, const int wallNumber) {
 
     double d = birdDist(wall, bird.pos);
 
-    if (d < 80) {
-        target(bird, diff, -2.0);
+    if (d <= 80) {
+        target(bird, diff, -1.0);
     }
+
+    if (d <= 40) {
+        target(bird, diff, -5.0);
+    }
+
+    if (d <= 20) {
+        target(bird, diff, -17.0);
+    }
+
+
 }
 
 auto guide(const Config& config, Bird& bird, const std::vector<Bird>& flock) {
@@ -346,14 +356,22 @@ int main(void) {
         config.w = static_cast<float>(GetScreenWidth());
         config.h = static_cast<float>(GetScreenHeight());
 
-        for (auto& b : flock) { guide(config, b, flock); }
-        for (auto& b : flock) { update(config, b); }
+        for (auto& b : flock) {
+            guide(config, b, flock);
+        }
+        for (auto& b : flock) {
+            update(config, b);
+        }
 
 
         BeginDrawing();
         ClearBackground(BLACK);
 
-        for (auto& b : flock) { drawBird(b); }
+        DrawRectangleLines(80, 80, config.w-(2*80), config.h-(2*80), BLUE);
+
+        for (auto& b : flock) {
+            drawBird(b);
+        }
 
         EndDrawing();
     }
