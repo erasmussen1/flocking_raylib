@@ -4,12 +4,11 @@
 #include <mather/mather.hpp>
 #include <mather/vector2d.hpp>
 #include <mather/vector2d_util.hpp>
-
+#include <mather/point2d.hpp>
+#include <mather/point2d_util.hpp>
 
 #include <vector>
 #include <string>
-// #include <memory>
-// #include <algorithm>
 #include <filesystem>
 #include <unistd.h>
 #include <stdexcept>
@@ -19,6 +18,8 @@
 #include <cmath>
 #include <random>
 #include <utility>
+#include <tuple>
+#include <execution>
 
 namespace fs = std::filesystem;
 
@@ -105,6 +106,10 @@ struct Bird {
     bool range{false};
 };
 
+auto rr2vv(const mathER::Point2d& v) -> Vector2 {
+    return {(float)v.x, (float)v.y};
+}
+
 auto rr2vv(const mathER::Vector2d& v) -> Vector2 {
     return {(float)v.x, (float)v.y};
 }
@@ -114,36 +119,30 @@ auto vv2rr(const Vector2& v) -> mathER::Vector2d {
 }
 
 auto limit(mathER::Vector2d& v, const float maximum) -> void {
-    const double magnitude = mathER::pythag(v.x, v.y);
+    const double magnitude = mathER::length(v);
 
     if (maximum > 0.0f && magnitude > maximum) {
-        v = v * (maximum / magnitude);
+        v *= (maximum / magnitude);
     }
 }
 
-auto birdDist(const mathER::Vector2d& p1, const mathER::Vector2d& p2) -> float {
-    auto diff = p1 - p2;
-
-    return mathER::pythag(diff.x, diff.y);
-}
-
-auto target(Bird& bird, mathER::Vector2d& targetDirection, const float k) {
-
+auto target(Bird& bird, const mathER::Vector2d& targetDirection, const float k) {
     auto x = mathER::normEx(targetDirection);
     if (!x.has_value()) {
         return;
     }
 
-    auto y = x.value();
-    y -= bird.vel;
-
-    y = y * maxSpeedK;
+    auto y = x.value() - bird.vel;
+    y *= maxSpeedK;
 
     limit(y, maxForceK);
 
-    y = y * k;
+    bird.acc += (y * k);
+}
 
-    bird.acc += y;
+template<typename T>
+auto inv(const T t) -> T {
+    return T{1} / t;
 }
 
 auto steer(Bird& bird, const std::vector<Bird>& flock) -> void {
@@ -156,11 +155,12 @@ auto steer(Bird& bird, const std::vector<Bird>& flock) -> void {
     int countS = 0;
 
     for (auto& other : flock) {
-        float d = birdDist(bird.pos, other.pos);
-
-        if (d <= 0.0) {
+        if (bird.pos == other.pos) {
             continue;
         }
+
+        mathER::Vector2d diff = bird.pos - other.pos;
+        float d = mathER::length(diff);
 
         if (d < neighborDist) {
             sumAlign += other.vel;
@@ -169,14 +169,12 @@ auto steer(Bird& bird, const std::vector<Bird>& flock) -> void {
         }
 
         if (d < SeparateDist) {
-            mathER::Vector2d diff = bird.pos - other.pos;
-
             auto norm = mathER::normEx(diff);
             if (!norm.has_value()) {
                 throw;
             }
 
-            sumSeparate += (norm.value() * (1.0 / d));
+            sumSeparate += (norm.value() * inv(d));
             countS++;
         }
     }
@@ -187,7 +185,7 @@ auto steer(Bird& bird, const std::vector<Bird>& flock) -> void {
 
     if (countN > 0) {
         target(bird, sumAlign, alignK);
-        sumCohere = sumCohere * (1.0 / countN);
+        sumCohere *= inv(static_cast<float>(countN));
         sumCohere -= bird.pos;
         target(bird, sumCohere, cohereK);
     }
@@ -197,15 +195,9 @@ void enemy(Bird& bird) {
     mathER::Vector2d mouse = vv2rr(GetMousePosition());
     mathER::Vector2d diff = mouse - bird.pos;
 
-    double d = birdDist(mouse, bird.pos);
+    const double d = mathER::length(diff);
 
-    if (d > 100) {
-        target(bird, diff, 1.0);
-    }
-
-    if (d < 100) {
-        target(bird, diff, -1.0);
-    }
+    target(bird, diff, (d > 100.0) ? 1.0 : -1.0);
 }
 
 struct Config {
@@ -213,7 +205,7 @@ struct Config {
     int h{0};
 };
 
-void wall(const Config &config, Bird& bird, const int wallNumber) {
+void walls(const Config& config, Bird& bird, const int wallNumber) {
 
     mathER::Vector2d wall(0.0, bird.pos.y);
 
@@ -231,43 +223,48 @@ void wall(const Config &config, Bird& bird, const int wallNumber) {
             wall.y = 0.0;
             break;
         case 3:
-            wall.x =bird.pos.x;
+            wall.x = bird.pos.x;
             wall.y = config.h;
             break;
     }
 
-    mathER::Vector2d diff = wall - bird.pos;
+    const mathER::Vector2d diff = wall - bird.pos;
 
-    double d = birdDist(wall, bird.pos);
+    const double d = mathER::length(wall - bird.pos);
 
-    if (d <= 80) {
-        target(bird, diff, -1.0);
-    }
-
-    if (d <= 40) {
-        target(bird, diff, -5.0);
-    }
-
-    if (d <= 20) {
+    if (d <= 20.0) {
         target(bird, diff, -17.0);
     }
 
+    if (d <= 40.0) {
+        target(bird, diff, -5.0);
+    }
 
+    if (d <= 80.0) {
+        target(bird, diff, -1.0);
+    }
 }
 
-auto guide(const Config& config, Bird& bird, const std::vector<Bird>& flock) {
+auto guide(const Config& config, const Bird& birdIn, const std::vector<Bird>& flock) {
+    Bird bird{birdIn};
 
     bird.acc.x = 0.0;
     bird.acc.y = 0.0;
 
     steer(bird, flock);
+
     // enemy(bird);
+
     for (int i = 0; i < 4; i++) {
-        wall(config, bird, i);
+        walls(config, bird, i);
     }
+
+    return bird;
 }
 
-auto update(const Config &config, Bird& bird) {
+auto update(const Config& config, const Bird& birdIn) -> Bird {
+    Bird bird(birdIn);
+
     bird.vel += bird.acc;
 
     limit(bird.vel, maxSpeedK);
@@ -276,36 +273,48 @@ auto update(const Config &config, Bird& bird) {
 
     bird.pos.x = std::fmod(bird.pos.x + config.w, config.w);
     bird.pos.y = std::fmod(bird.pos.y + config.h, config.h);
+
+    return bird;
 }
 
-void DrawTallTriangle(
-    const float x, const float y, float width, float height, float angleRad, Color color) {
-    const float c = std::cos(angleRad);
-    const float s = std::sin(angleRad);
+auto calculateTallTriangle(const mathER::Vector2d& cv,
+                           const float width,
+                           const float height,
+                           const float angleRad)
+    -> std::tuple<mathER::Point2d, mathER::Point2d, mathER::Point2d> {
 
-    Vector2 p1 = {0.0f, -height / 2.0f};
-    Vector2 p2 = {-width / 2.0f, height / 2.0f};
-    Vector2 p3 = {width / 2.0f, height / 2.0f};
+    const mathER::Point2d c(cv.x, cv.y);
 
-    auto rotate = [&](Vector2 pp) -> Vector2 {
-        return {x + pp.x * c - pp.y * s, y + pp.x * s + pp.y * c};
-    };
+    const mathER::Point2d p1(0.0f, -height / 2.0f);
+    const mathER::Point2d p2(-width / 2.0f, height / 2.0f);
+    const mathER::Point2d p3(width / 2.0f, height / 2.0f);
 
-    p1 = rotate(p1);
-    p2 = rotate(p2);
-    p3 = rotate(p3);
+    auto t1 = mathER::rotate(p1, angleRad);
+    if (!t1.has_value()) {
+        throw;
+    }
 
-    DrawTriangle(p1, p2, p3, color);
+    auto t2 = mathER::rotate(p2, angleRad);
+    if (!t2.has_value()) {
+        throw;
+    }
+
+    auto t3 = mathER::rotate(p3, angleRad);
+    if (!t3.has_value()) {
+        throw;
+    }
+
+    return {t1.value() + c, t2.value() + c, t3.value() + c};
 }
 
-auto drawBird(Bird& bird) {
+auto drawBird(const Bird& bird) {
 
     auto vr = mathER::angle(bird.vel);
     if (!vr.has_value()) {
         throw;
     }
 
-    float v = vr.value() + mathER::deg2rad(90.0);
+    const float v = vr.value() + mathER::deg2rad(90.0);
 
     if (bird.range) {
         float r0 = neighborDist;
@@ -316,20 +325,20 @@ auto drawBird(Bird& bird) {
         DrawRing(rr2vv(bird.pos), r1, r1 + 1.0f, 0.0f, 360.0f, 100, ORANGE);
     }
 
-    DrawTallTriangle(bird.pos.x, bird.pos.y, 4, 10, v, bird.color);
+    auto [p1, p2, p3] = calculateTallTriangle(bird.pos, 4, 10, v);
+
+    DrawTriangle(rr2vv(p1), rr2vv(p2), rr2vv(p3), bird.color);
 }
 
-int main(void) {
-    AppWindow appWindow(initWinW, initWinH);
-
-    std::vector<Bird> flock;
-
+auto generateRandomBirds(const int numberOfBrids) -> std::vector<Bird> {
     std::random_device rd;
     std::mt19937 gen(rd());
 
     std::uniform_int_distribution<int> distribX(0, initWinW);
     std::uniform_int_distribution<int> distribY(0, initWinH);
     std::uniform_int_distribution<int> distribI(-100, 100);
+
+    std::vector<Bird> flock;
 
     for (int i = 0; i < numberOfBirds; i++) {
         float rw = (float)distribX(gen);
@@ -341,8 +350,15 @@ int main(void) {
         flock.push_back(Bird(rw, rh, rx, ry));
     }
 
-    if (flock.size() > 2)
-    {
+    return flock;
+}
+
+int main(void) {
+    AppWindow appWindow(initWinW, initWinH);
+
+    std::vector<Bird> flock = generateRandomBirds(numberOfBirds);
+
+    if (flock.size() > 2) {
         flock.front().color = RED;
         flock.front().range = true;
 
@@ -356,18 +372,26 @@ int main(void) {
         config.w = static_cast<float>(GetScreenWidth());
         config.h = static_cast<float>(GetScreenHeight());
 
-        for (auto& b : flock) {
-            guide(config, b, flock);
-        }
-        for (auto& b : flock) {
-            update(config, b);
-        }
+        std::transform(std::execution::par,                 //
+                       flock.cbegin(),                      //
+                       flock.cend(),                        //
+                       flock.begin(),                       //
+                       [config, flock](const Bird& b) {     //
+                           return guide(config, b, flock);  //
+                       });
 
+        std::transform(std::execution::par,           //
+                       flock.cbegin(),                //
+                       flock.cend(),                  //
+                       flock.begin(),                 //
+                       [config](const Bird& b) {      //
+                           return update(config, b);  //
+                       });
 
         BeginDrawing();
         ClearBackground(BLACK);
 
-        DrawRectangleLines(80, 80, config.w-(2*80), config.h-(2*80), BLUE);
+        DrawRectangleLines(80, 80, config.w - (2 * 80), config.h - (2 * 80), BLUE);
 
         for (auto& b : flock) {
             drawBird(b);

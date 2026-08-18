@@ -10,6 +10,7 @@ target_link_libraries(${PROJECT_NAME}
 		raylib
         mather
         m
+        tbb
 )
 
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/resources
