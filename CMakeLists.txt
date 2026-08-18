@@ -170,9 +170,9 @@ if(ENABLE_CCACHE)
     endif(CCACHE_FOUND)
 endif()
 
-# find_package(raylib REQUIRED)
+find_package(raylib REQUIRED)
 
-add_subdirectory(lib/raylib)
+# add_subdirectory(lib/raylib)
 add_subdirectory(app)
 
 # install(DIRECTORY systemd/ DESTINATION /etc/systemd/system)
