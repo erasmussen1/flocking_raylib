@@ -23,8 +23,6 @@ Read the **[User Guide](doc/user_guide.md)** to learn more!
 │       └── resources
 ├── cmake
 ├── debian
-├── lib
-│   └── raylib
 └── scripts
 
 ```
@@ -34,5 +32,19 @@ Read the **[User Guide](doc/user_guide.md)** to learn more!
 ```
 
   ./scripts/build.sh -dce
+
+```
+
+## To install raylib
+
+```
+
+git clone https://github.com/raysan5/raylib.git raylib
+cd raylib
+mkdir build && cd build
+cmake ..
+make
+sudo make install
+sudo ldconfig
 
 ```
