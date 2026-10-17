@@ -9,8 +9,6 @@
 
 #include <vector>
 #include <string>
-#include <filesystem>
-#include <unistd.h>
 #include <stdexcept>
 #include <numbers>
 #include <print>
@@ -20,8 +18,6 @@
 #include <utility>
 #include <tuple>
 #include <execution>
-
-namespace fs = std::filesystem;
 
 constexpr double initWinW = 1000;
 constexpr double initWinH = 800;
@@ -58,39 +54,6 @@ struct AppWindow {
     auto isOpen() -> bool {
         return !WindowShouldClose();
     }
-};
-
-
-struct AppFonts {
-    AppFonts() = default;
-
-    ~AppFonts() {
-        UnloadFont(fonts);
-    }
-
-    AppFonts(const AppFonts& other) = delete;
-    AppFonts& operator=(const AppFonts& other) = delete;
-
-    auto initFonts(const fs::path& directorName) -> int {
-
-        int glyphs[20];
-        for (int i = 0; i < 20; ++i) {
-            glyphs[i] = 0x1D2E0 + i;
-        }
-
-        auto filename = directorName / "resources/BabelStoneMayanNumerals.ttf";
-
-        if (!fs::exists(filename)) {
-            return -1;
-        }
-
-        fonts = LoadFontEx(filename.string().c_str(), 64, glyphs, 20);
-        SetTextureFilter(fonts.texture, TEXTURE_FILTER_BILINEAR);
-
-        return 0;
-    }
-
-    Font fonts;
 };
 
 struct Bird {
@@ -140,7 +103,7 @@ auto target(Bird& bird, const mathER::Vector2d& targetDirection, const float k) 
     bird.acc += (y * k);
 }
 
-template<typename T>
+template <typename T>
 auto inv(const T t) -> T {
     return T{1} / t;
 }

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(DemoRaylib VERSION 1.07.00)
+project(FlockingRaylib VERSION 1.07.00)
 
 set(Package_maintainer "Egil Rasmussen")
 
@@ -125,8 +125,6 @@ add_compile_options(
     -Wno-float-conversion
     #-Wdouble-promotion
     -Wno-double-promotion
-    -g
-    -Wall
 )
 
 if(RELEASE_BUILD)
@@ -171,8 +169,6 @@ if(ENABLE_CCACHE)
 endif()
 
 find_package(raylib REQUIRED)
-
-# add_subdirectory(lib/raylib)
 add_subdirectory(app)
 
 # install(DIRECTORY systemd/ DESTINATION /etc/systemd/system)

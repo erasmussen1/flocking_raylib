@@ -48,3 +48,9 @@ sudo make install
 sudo ldconfig
 
 ```
+
+## Screenshot
+
+![Screenshot of Flocking](images/floking.jpeg)
+
+
